@@ -1,0 +1,5 @@
+bin/ 
+dados/*.db 
+dados/*.cst 
+dados/*.dir 
+dados/indice_* 
