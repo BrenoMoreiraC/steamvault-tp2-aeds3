@@ -13,6 +13,12 @@ import tp1.ordenacao.ChaveOrdenacao;
 import tp1.ordenacao.OrdenacaoExterna;
 import tp1.util.Terminal;
 
+import tp1.compressao.Huffman;
+import tp1.compressao.LZW;
+import tp1.compressao.CompressaoUtils;
+import tp1.padroes.KMP;
+import tp1.padroes.ShiftAnd;
+
 /**
  * SteamVault — TP2 de AEDS III
  *
@@ -78,10 +84,15 @@ public class Main {
             Terminal.imprimir("   9 - Estatísticas do arquivo binário");
             Terminal.imprimir("  10 - Ordenação externa (intercalação balanceada)");
             Terminal.imprimir("");
-            Terminal.imprimir("   0 - Sair");
+            // --- ADIÇÃO DA ETAPA 3 NO MENU PRINCIPAL ---
+            Terminal.imprimir("   ETAPA 3");
+            Terminal.imprimir("   11 - Compressão (Huffman/LZW) & Casamento de Padrões");
+            Terminal.imprimir("");
+            Terminal.imprimir("    0 - Sair");
             Terminal.linha();
+            
 
-            int opcao = Terminal.lerInteiro("Opção", 0, 10);
+            int opcao = Terminal.lerInteiro("Opção", 0, 11);
             switch (opcao) {
                 case 1 -> carregarCSV();
                 case 2 -> listar();
@@ -93,6 +104,7 @@ public class Main {
                 case 8 -> excluir();
                 case 9 -> estatisticas();
                 case 10 -> ordenacaoExterna();
+                case 11 -> menuEtapa3();
                 case 0 -> executando = false;
             }
         }
@@ -405,5 +417,97 @@ public class Main {
 
         Terminal.sucesso("Ordenação concluída e índices reconstruídos com as novas posições em disco!");
         Terminal.pausar();
+    }
+    // -------------------------------------------------- 11. menu etapa 3
+
+    private static void menuEtapa3() {
+        int opcao = -1;
+        do {
+            Terminal.titulo("etapa 3 - compressão e casamento de padrões");
+            Terminal.imprimir("   1 - Comprimir Base de Dados (Huffman & LZW)");
+            Terminal.imprimir("   2 - Descompactar Base de Dados (Restaurar versão)");
+            Terminal.imprimir("   3 - Casamento de Padrões - KMP");
+            Terminal.imprimir("   4 - Casamento de Padrões - Shift-And");
+            Terminal.imprimir("   0 - Voltar ao Menu Principal");
+            Terminal.linha();
+
+            opcao = Terminal.lerInteiro("Opção", 0, 4);
+
+            try {
+                switch (opcao) {
+                    case 1 -> {
+                        int versao = Terminal.lerInteiro("Versão da compressão (ex: 1)", 1, 9999);
+
+                        Terminal.imprimir("\n   Executando compactação por Huffman...");
+                        Huffman.ResultadoCompressao resHuffman = Huffman.compactar(CAMINHO_DB, versao);
+
+                        Terminal.imprimir("   Executando compactação por LZW...");
+                        LZW.ResultadoLZW resLZW = LZW.compactar(CAMINHO_DB, versao);
+
+                        CompressaoUtils.exibirComparativo(resHuffman, resLZW);
+                        Terminal.pausar();
+                    }
+                    case 2 -> {
+                        Terminal.imprimir("   Escolha o algoritmo para descompactar:");
+                        Terminal.imprimir("    1 - Huffman");
+                        Terminal.imprimir("    2 - LZW");
+                        int escolhaAlg = Terminal.lerInteiro("Opção", 1, 2);
+
+                        int versao = Terminal.lerInteiro("Versão 'X' que deseja descompactar", 1, 9999);
+
+                        // Como a descompactação mexe/fecha arquivos, garantimos que o arquivo indexado esteja fechado ou sincronizado
+                        arquivoIndexado.getArquivoDados().close();
+
+                        if (escolhaAlg == 1) {
+                            String arquivoCompactado = "dados/jogosHuffmanCompressao" + versao + ".db";
+                            Huffman.descompactar(arquivoCompactado, CAMINHO_DB);
+                            Terminal.sucesso("Base descompactada via Huffman e restaurada para " + CAMINHO_DB);
+                        } else {
+                            String arquivoCompactado = "dados/jogosLZWCompressao" + versao + ".db";
+                            LZW.descompactar(arquivoCompactado, CAMINHO_DB);
+                            Terminal.sucesso("Base descompactada via LZW e restaurada para " + CAMINHO_DB);
+                        }
+
+                        // Reabre e reconstrói os índices da base restaurada
+                        arquivoIndexado.getArquivoDados().reabrir();
+                        arquivoIndexado.reconstruirIndices();
+                        Terminal.pausar();
+                    }
+                    case 3 -> {
+                        String padrao = Terminal.lerTextoObrigatorio("Padrão/termo para busca (KMP)");
+
+                        byte[] bytesTexto = CompressaoUtils.lerArquivoEmBytes(new File(CAMINHO_DB));
+                        String texto = new String(bytesTexto, "ISO-8859-1");
+
+                        long inicio = System.nanoTime();
+                        List<Integer> ocorrencias = KMP.buscar(texto, padrao);
+                        double ms = (System.nanoTime() - inicio) / 1_000_000.0;
+
+                        Terminal.linha();
+                        Terminal.sucesso(String.format("[KMP] Padrão encontrado em %d ocorrência(s) em %.2f ms.", ocorrencias.size(), ms));
+                        Terminal.pausar();
+                    }
+                    case 4 -> {
+                        String padrao = Terminal.lerTextoObrigatorio("Padrão/termo para busca (Shift-And - máx 64 caracteres)");
+
+                        byte[] bytesTexto = CompressaoUtils.lerArquivoEmBytes(new File(CAMINHO_DB));
+                        String texto = new String(bytesTexto, "ISO-8859-1");
+
+                        long inicio = System.nanoTime();
+                        List<Integer> ocorrencias = ShiftAnd.buscar(texto, padrao);
+                        double ms = (System.nanoTime() - inicio) / 1_000_000.0;
+
+                        Terminal.linha();
+                        Terminal.sucesso(String.format("[Shift-And] Padrão encontrado em %d ocorrência(s) em %.2f ms.", ocorrencias.size(), ms));
+                        Terminal.pausar();
+                    }
+                }
+            } catch (Exception e) {
+                Terminal.erro("Erro durante a execução da Etapa 3: " + e.getMessage());
+                e.printStackTrace(Terminal.SAIDA);
+                Terminal.pausar();
+            }
+
+        } while (opcao != 0);
     }
 }
